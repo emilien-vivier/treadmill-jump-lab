@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labo Tapis Saut</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <script type="module" crossorigin src="/treadmill-jump-lab/assets/physics-Z6F7oF-4.js"></script>
+  <script type="module" crossorigin src="/treadmill-jump-lab/assets/app-BBHeg--B.js"></script>
+  <link rel="stylesheet" crossorigin href="/treadmill-jump-lab/assets/physics-BgT_bIbG.css">
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Labo Tapis Saut</h1>
+      <p>Une simulation en temps réel de votre tapis roulant et de son personnage sauteur : courbes moteur, rouage Z1/Z2, frottement cabestan sur le tablier, liaison par bielle et capteur à pivot. La logique Arduino tourne ici exactement comme dans le sketch ci-dessous.</p>
+    </div>
+    <div class="top-side">
+      <a class="btn guidelink" href="./build.html">Guide de montage →</a>
+      <div id="verdicts" aria-label="Vérifications de conception"></div>
+      <select id="lang" class="lang" aria-label="Langue">
+        <option value="en">EN · English</option>
+        <option value="fr">FR · Français</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage" id="stage" data-state="READY">
+      <div class="viewtabs" role="tablist" aria-label="Vue ciblée">
+        <button role="tab" data-focus="all" aria-selected="true">Système complet</button>
+        <button role="tab" data-focus="belt" aria-selected="false">Tapis roulant</button>
+        <button role="tab" data-focus="char" aria-selected="false">Personnage</button>
+        <button role="tab" data-focus="spec" aria-selected="false">Cahier des charges</button>
+      </div>
+      <div class="specview" id="specView" data-part="spec"></div>
+      <details class="simacc" id="simAcc" open>
+        <summary>Simulation 3D</summary>
+        <div class="viewport" id="view">
+          <div id="labels"></div>
+          <div class="hud"><span class="flag" id="slipFlag" hidden>Les roues patinent sur le tablier</span><span class="flag warn" id="landFlag" hidden>Atterri sur un obstacle (le pivot ne le voit pas)</span></div>
+          <button class="vbtn" id="btnLabels" aria-pressed="false">Masquer les noms</button>
+          <div class="hint">Glisser pour tourner · molette pour zoomer · Espace = bouton</div>
+        </div>
+      </details>
+      <div class="controls">
+        <button class="btn primary" id="btnMain">Démarrer</button>
+        <button class="btn" id="btnReset">Relancer la simulation</button>
+        <button class="btn" id="btnPause">Pause</button>
+        <span class="seg" role="group" aria-label="Vitesse de simulation">
+          <button data-speed="0.1" aria-pressed="false">0.1×</button>
+          <button data-speed="0.25" aria-pressed="false">0.25×</button>
+          <button data-speed="1" aria-pressed="true">1×</button>
+        </span>
+        <label class="speed" for="vTarget">Vitesse du tapis <input type="range" id="vTarget" min="0.05" max="1.5" step="0.01" value="0.4"><output id="vTargetOut">0.40 m/s</output></label>
+      </div>
+      <div class="readouts">
+        <div class="ro" data-part="belt"><div class="k">Vitesse tapis</div><span class="v" id="r_v">0</span><span class="u">m/s</span></div>
+        <div class="ro" data-part="belt"><div class="k">Lu par le codeur</div><span class="v" id="r_vm">0</span><span class="u">m/s</span></div>
+        <div class="ro" data-part="belt"><div class="k">Commande</div><span class="v" id="r_u">0</span><span class="u" id="r_uUnit">% PWM</span></div>
+        <div class="ro" data-part="belt"><div class="k">Courant moteur</div><span class="v" id="r_I">0</span><span class="u">A</span></div>
+        <div class="ro" data-part="char"><div class="k">Courant servo</div><span class="v" id="r_Is">0</span><span class="u">A</span></div>
+        <div class="ro" data-part="char"><div class="k">Levée crémaillère</div><span class="v" id="r_y">0</span><span class="u">mm</span></div>
+        <div class="ro" data-part="char"><div class="k">Angle du pivot</div><span class="v" id="r_th">0</span><span class="u">°</span></div>
+        <div class="ro" data-part="char"><div class="k">CAN potentiomètre</div><span class="v" id="r_adc">512</span><span class="u" id="r_base">base 512</span></div>
+        <div class="ro"><div class="k">Partie</div><span class="v" id="r_state" style="font-size:15px">PRÊT</span></div>
+        <div class="ro" data-part="char"><div class="k">État du saut</div><span class="v" id="r_jump" style="font-size:15px">REPOS</span></div>
+        <div class="ro"><div class="k">Franchis</div><span class="v" id="r_score">0</span></div>
+        <div class="ro"><div class="k">Touches</div><span class="v" id="r_hits">0</span></div>
+      </div>
+      <div class="charts">
+        <div class="chart" data-part="belt"><h4>Vitesse du tapis</h4>
+          <div class="legend"><span><i class="dash"></i>Consigne Arduino</span><span><i style="background:var(--series-1)"></i>Tapis réel</span><span><i style="background:var(--series-2)"></i>Codeur</span></div>
+          <div class="cbox"><canvas id="chSpeed" aria-label="Vitesse du tapis sur les 10 dernières secondes"></canvas><div class="tip" id="chSpeed_tip" hidden></div></div></div>
+        <div class="chart" data-part="belt"><h4>Courant moteur (A)</h4>
+          <div class="legend"><span>Tombe à ~0 au freinage dynamique</span></div>
+          <div class="cbox"><canvas id="chCurrent" aria-label="Courant moteur sur les 10 dernières secondes"></canvas><div class="tip" id="chCurrent_tip" hidden></div></div></div>
+        <div class="chart" data-part="char"><h4>Hauteur du pied du personnage (mm)</h4>
+          <div class="legend"><span><i style="background:var(--series-1)"></i>Pied au-dessus du tapis</span><span><i style="background:var(--series-2)"></i>Haut de l’obstacle</span></div>
+          <div class="cbox"><canvas id="chLift" aria-label="Hauteur du pied du personnage sur les 10 dernières secondes"></canvas><div class="tip" id="chLift_tip" hidden></div></div></div>
+      </div>
+      <div class="log" id="log" aria-label="Moniteur série Arduino" aria-live="polite"></div>
+    </section>
+
+    <aside class="design">
+      <header><h2>Fiche de conception</h2><p>Chaque modification reconstruit le modèle et la config Arduino. Les valeurs par défaut sont des valeurs typiques de fiches techniques : remplacez-les par celles de vos pièces.</p></header>
+      <div class="tabs" role="tablist">
+        <button data-tab="drive" aria-selected="true">Moteur</button>
+        <button data-tab="gears" aria-selected="false">Rouage</button>
+        <button data-tab="belt" aria-selected="false">Tablier</button>
+        <button data-tab="game" aria-selected="false">Régulation</button>
+        <button data-tab="character" aria-selected="false">Personnage</button>
+        <button data-tab="sensor" aria-selected="false">Capteur</button>
+      </div>
+      <div id="form"></div>
+    </aside>
+  </main>
+
+  <div class="section-h"><h2>Rapport d’ingénierie</h2><p>Calculs en régime établi pour la conception actuelle. La simulation ci-dessus utilise les mêmes équations, plus l’adhérence-glissement, l’inertie et le cadencement de l’Arduino.</p></div>
+  <section id="report"></section>
+
+  <section class="card">
+    <header><h3>Couple–vitesse du moteur face à la charge</h3></header>
+    <div class="ts">
+      <div><div class="legend"><span><i style="background:var(--series-1)"></i>Moteur, commande maximale</span><span><i style="background:var(--series-2)"></i>Charge sur l’arbre moteur</span><span><i class="dash"></i>Couple nominal</span></div><canvas id="chTS" aria-label="Courbe couple-vitesse du moteur et charge"></canvas><p class="fnote" id="tsNote"></p></div>
+      <ul class="eq">
+        <li><b>Rapport de réduction</b> i = réducteur × Z2/Z1 × Z4/Z3 · η = η<sub>réd</sub> × η<sub>conique</sub>²</li>
+        <li><b>Vitesse du tapis</b> v = ω<sub>moteur</sub> / i × D/2</li>
+        <li><b>Couple moteur</b> T<sub>m</sub> = F × R / (i × η)</li>
+        <li><b>Moteur CC</b> I = (u·V − Kt·ω)/R, T = Kt·(I − I₀)</li>
+        <li><b>Asynchrone (Kloss)</b> T = 2T<sub>b</sub> / (s/s<sub>b</sub> + s<sub>b</sub>/s), s = (ω<sub>s</sub> − ω)/ω<sub>s</sub>, ω<sub>s</sub> = 2πf/p</li>
+        <li><b>Adhérence cabestan</b> F<sub>max</sub> = 2T₀·tanh(μθ/2) par rouleau</li>
+        <li><b>Frottement plateau</b> F = μ·(m<sub>tablier</sub>/2 + m<sub>charge</sub>)·g</li>
+        <li><b>Pertes charnières</b> F = n·2·h·½k·(p/R)² / p</li>
+        <li><b>Ondulation polygonale</b> Δv/v = 1 − cos(π·p / 2πR)</li>
+        <li><b>Inertie ramenée</b> m<sub>éq</sub> = J<sub>rotor</sub>·i² / R²</li>
+        <li><b>Crémaillère</b> y = m·Z/2 × Δφ(α) · T<sub>servo</sub> = dy/dα × (m·g + m·ÿ + F<sub>guide</sub>)</li>
+        <li><b>Pivot</b> détection si μ·m<sub>obs</sub>·g·L &gt; T<sub>pré</sub> + k·θ<sub>seuil</sub> · CAN = 1023·θ/θ<sub>pot</sub></li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="section-h"><h2>Sketch Arduino</h2><p>Le bloc de config se met à jour avec la fiche de conception. Collez-le dans l’IDE Arduino pour un Uno ou un Nano.</p></div>
+  <section class="codewrap">
+    <div class="codebox">
+      <header><b>treadmill_jump.ino</b><span><span id="copyMsg"></span> <button class="btn" id="btnCopy">Copier le code</button></span></header>
+      <pre id="code">Chargement…</pre>
+    </div>
+    <div class="codebox wiring">
+      <header><b>Câblage</b></header>
+      <div class="scroll"><table>
+        <thead><tr><th>Broche</th><th>Va vers</th></tr></thead>
+        <tbody>
+          <tr><td>D2</td><td>Sortie du codeur : disque à fentes + fourche optique, ou capteur à effet Hall A3144 + aimants sur un axe de rouleau. INPUT_PULLUP.</td></tr>
+          <tr><td>D3</td><td>CC : RPWM du BTS7960.<br>CA : filtre RC (10 kΩ + 10 µF) → LM358 gain ×2 en 12 V → entrée analogique 0–10 V du variateur.</td></tr>
+          <tr><td>D11</td><td>LPWM du BTS7960, maintenu à LOW.</td></tr>
+          <tr><td>D8</td><td>CC : R_EN + L_EN du BTS7960.<br>CA : optocoupleur → borne FWD/RUN du variateur.</td></tr>
+          <tr><td>D4</td><td>Bouton saut / départ vers GND.</td></tr>
+          <tr><td>D9</td><td>Signal du servo. + et − du servo sur une alimentation 5–6 V séparée, GND commune.</td></tr>
+          <tr><td>A0</td><td>Curseur du potentiomètre du pivot (10 kΩ linéaire), extrémités sur 5 V et GND.</td></tr>
+          <tr><td>D7</td><td>Microrupteur du pivot vers GND, si USE_POT = 0.</td></tr>
+          <tr><td>D13</td><td>LED de fin de partie.</td></tr>
+        </tbody>
+      </table>
+      <p class="fnote">Le raccordement secteur d’un variateur (230 V) doit être fait par une personne qualifiée. L’Arduino ne touche que les bornes de commande basse tension du variateur. Mettez un arrêt d’urgence matériel sur l’alimentation du moteur : l’arrêt sur collision du sketch n’est pas une fonction de sécurité.</p>
+      <p class="fnote">La bibliothèque Servo utilise le Timer1, donc D9/D10 perdent analogWrite. Le sketch passe le Timer2 à 3,9 kHz pour le PWM moteur sur D3 : n’utilisez pas tone().</p></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

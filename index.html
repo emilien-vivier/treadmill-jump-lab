@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treadmill Jump Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <script type="module" crossorigin src="/treadmill-jump-lab/assets/physics-Z6F7oF-4.js"></script>
+  <script type="module" crossorigin src="/treadmill-jump-lab/assets/app-BBHeg--B.js"></script>
+  <link rel="stylesheet" crossorigin href="/treadmill-jump-lab/assets/physics-BgT_bIbG.css">
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Treadmill Jump Lab</h1>
+      <p>A real-time simulation of your tapis roulant and jumping character: motor curves, rouage Z1/Z2, capstan friction on the tablier, the bielle linkage and the pivot sensor. The Arduino logic runs here exactly as in the sketch below.</p>
+    </div>
+    <div class="top-side">
+      <a class="btn guidelink" href="./build.html">Build guide →</a>
+      <div id="verdicts" aria-label="Design checks"></div>
+      <select id="lang" class="lang" aria-label="Language">
+        <option value="en">EN · English</option>
+        <option value="fr">FR · Français</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage" id="stage" data-state="READY">
+      <div class="viewtabs" role="tablist" aria-label="Focus view">
+        <button role="tab" data-focus="all" aria-selected="true">Whole system</button>
+        <button role="tab" data-focus="belt" aria-selected="false">Treadmill</button>
+        <button role="tab" data-focus="char" aria-selected="false">Character</button>
+        <button role="tab" data-focus="spec" aria-selected="false">Specification</button>
+      </div>
+      <div class="specview" id="specView" data-part="spec"></div>
+      <details class="simacc" id="simAcc" open>
+        <summary>3D simulation</summary>
+        <div class="viewport" id="view">
+          <div id="labels"></div>
+          <div class="hud"><span class="flag" id="slipFlag" hidden>Wheels slipping on the tablier</span><span class="flag warn" id="landFlag" hidden>Landed on an obstacle (pivot can't see this)</span></div>
+          <button class="vbtn" id="btnLabels" aria-pressed="false">Hide names</button>
+          <div class="hint">Drag to orbit · scroll to zoom · Space = button</div>
+        </div>
+      </details>
+      <div class="controls">
+        <button class="btn primary" id="btnMain">Start</button>
+        <button class="btn" id="btnReset">Restart simulation</button>
+        <button class="btn" id="btnPause">Pause</button>
+        <span class="seg" role="group" aria-label="Simulation speed">
+          <button data-speed="0.1" aria-pressed="false">0.1×</button>
+          <button data-speed="0.25" aria-pressed="false">0.25×</button>
+          <button data-speed="1" aria-pressed="true">1×</button>
+        </span>
+        <label class="speed" for="vTarget">Belt speed <input type="range" id="vTarget" min="0.05" max="1.5" step="0.01" value="0.4"><output id="vTargetOut">0.40 m/s</output></label>
+      </div>
+      <div class="readouts">
+        <div class="ro" data-part="belt"><div class="k">Belt speed</div><span class="v" id="r_v">0</span><span class="u">m/s</span></div>
+        <div class="ro" data-part="belt"><div class="k">Encoder reads</div><span class="v" id="r_vm">0</span><span class="u">m/s</span></div>
+        <div class="ro" data-part="belt"><div class="k">Command</div><span class="v" id="r_u">0</span><span class="u" id="r_uUnit">% PWM</span></div>
+        <div class="ro" data-part="belt"><div class="k">Motor current</div><span class="v" id="r_I">0</span><span class="u">A</span></div>
+        <div class="ro" data-part="char"><div class="k">Servo current</div><span class="v" id="r_Is">0</span><span class="u">A</span></div>
+        <div class="ro" data-part="char"><div class="k">Rack lift</div><span class="v" id="r_y">0</span><span class="u">mm</span></div>
+        <div class="ro" data-part="char"><div class="k">Pivot angle</div><span class="v" id="r_th">0</span><span class="u">°</span></div>
+        <div class="ro" data-part="char"><div class="k">Pot ADC</div><span class="v" id="r_adc">512</span><span class="u" id="r_base">base 512</span></div>
+        <div class="ro"><div class="k">Game</div><span class="v" id="r_state" style="font-size:15px">READY</span></div>
+        <div class="ro" data-part="char"><div class="k">Jump state</div><span class="v" id="r_jump" style="font-size:15px">IDLE</span></div>
+        <div class="ro"><div class="k">Cleared</div><span class="v" id="r_score">0</span></div>
+        <div class="ro"><div class="k">Hits</div><span class="v" id="r_hits">0</span></div>
+      </div>
+      <div class="charts">
+        <div class="chart" data-part="belt"><h4>Belt speed</h4>
+          <div class="legend"><span><i class="dash"></i>Arduino reference</span><span><i style="background:var(--series-1)"></i>True belt</span><span><i style="background:var(--series-2)"></i>Encoder</span></div>
+          <div class="cbox"><canvas id="chSpeed" aria-label="Belt speed over the last 10 seconds"></canvas><div class="tip" id="chSpeed_tip" hidden></div></div></div>
+        <div class="chart" data-part="belt"><h4>Motor current (A)</h4>
+          <div class="legend"><span>Drops to ~0 on dynamic braking</span></div>
+          <div class="cbox"><canvas id="chCurrent" aria-label="Motor current over the last 10 seconds"></canvas><div class="tip" id="chCurrent_tip" hidden></div></div></div>
+        <div class="chart" data-part="char"><h4>Character foot height (mm)</h4>
+          <div class="legend"><span><i style="background:var(--series-1)"></i>Foot above belt</span><span><i style="background:var(--series-2)"></i>Obstacle top</span></div>
+          <div class="cbox"><canvas id="chLift" aria-label="Character foot height over the last 10 seconds"></canvas><div class="tip" id="chLift_tip" hidden></div></div></div>
+      </div>
+      <div class="log" id="log" aria-label="Arduino serial monitor" aria-live="polite"></div>
+    </section>
+
+    <aside class="design">
+      <header><h2>Design sheet</h2><p>Every change rebuilds the model and the Arduino config. Defaults are typical datasheet values: replace them with your parts.</p></header>
+      <div class="tabs" role="tablist">
+        <button data-tab="drive" aria-selected="true">Motor</button>
+        <button data-tab="gears" aria-selected="false">Rouage</button>
+        <button data-tab="belt" aria-selected="false">Tablier</button>
+        <button data-tab="game" aria-selected="false">Control</button>
+        <button data-tab="character" aria-selected="false">Character</button>
+        <button data-tab="sensor" aria-selected="false">Sensor</button>
+      </div>
+      <div id="form"></div>
+    </aside>
+  </main>
+
+  <div class="section-h"><h2>Engineering report</h2><p>Steady-state calculations for the current design. The live simulation above uses the same equations, plus stick-slip, inertia and the Arduino's timing.</p></div>
+  <section id="report"></section>
+
+  <section class="card">
+    <header><h3>Motor torque–speed vs load</h3></header>
+    <div class="ts">
+      <div><div class="legend"><span><i style="background:var(--series-1)"></i>Motor, full command</span><span><i style="background:var(--series-2)"></i>Load at the motor shaft</span><span><i class="dash"></i>Rated torque</span></div><canvas id="chTS" aria-label="Motor torque-speed curve and load"></canvas><p class="fnote" id="tsNote"></p></div>
+      <ul class="eq">
+        <li><b>Gear ratio</b> i = gearbox × Z2/Z1 × Z4/Z3 · η = η<sub>gb</sub> × η<sub>bevel</sub>²</li>
+        <li><b>Belt speed</b> v = ω<sub>motor</sub> / i × D/2</li>
+        <li><b>Motor torque</b> T<sub>m</sub> = F × R / (i × η)</li>
+        <li><b>DC motor</b> I = (u·V − Kt·ω)/R, T = Kt·(I − I₀)</li>
+        <li><b>Induction (Kloss)</b> T = 2T<sub>b</sub> / (s/s<sub>b</sub> + s<sub>b</sub>/s), s = (ω<sub>s</sub> − ω)/ω<sub>s</sub>, ω<sub>s</sub> = 2πf/p</li>
+        <li><b>Capstan grip</b> F<sub>max</sub> = 2T₀·tanh(μθ/2) per roller</li>
+        <li><b>Deck friction</b> F = μ·(m<sub>belt</sub>/2 + m<sub>load</sub>)·g</li>
+        <li><b>Hinge loss</b> F = n·2·h·½k·(p/R)² / p</li>
+        <li><b>Chordal ripple</b> Δv/v = 1 − cos(π·p / 2πR)</li>
+        <li><b>Reflected inertia</b> m<sub>eq</sub> = J<sub>rotor</sub>·i² / R²</li>
+        <li><b>Rack</b> y = m·Z/2 × Δφ(α) · T<sub>servo</sub> = dy/dα × (m·g + m·ÿ + F<sub>guide</sub>)</li>
+        <li><b>Pivot</b> detect if μ·m<sub>obs</sub>·g·L &gt; T<sub>pre</sub> + k·θ<sub>thr</sub> · ADC = 1023·θ/θ<sub>pot</sub></li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="section-h"><h2>Arduino sketch</h2><p>The config block updates with the design sheet. Paste it into the Arduino IDE for an Uno or Nano.</p></div>
+  <section class="codewrap">
+    <div class="codebox">
+      <header><b>treadmill_jump.ino</b><span><span id="copyMsg"></span> <button class="btn" id="btnCopy">Copy code</button></span></header>
+      <pre id="code">Loading…</pre>
+    </div>
+    <div class="codebox wiring">
+      <header><b>Wiring</b></header>
+      <div class="scroll"><table>
+        <thead><tr><th>Pin</th><th>Goes to</th></tr></thead>
+        <tbody>
+          <tr><td>D2</td><td>Encoder output: slotted disc + optical fork, or A3144 hall + magnets on a roller axle. INPUT_PULLUP.</td></tr>
+          <tr><td>D3</td><td>DC: BTS7960 RPWM.<br>AC: RC filter (10 kΩ + 10 µF) → LM358 ×2 gain on 12 V → VFD analog input 0–10 V.</td></tr>
+          <tr><td>D11</td><td>BTS7960 LPWM, held LOW.</td></tr>
+          <tr><td>D8</td><td>DC: BTS7960 R_EN + L_EN.<br>AC: optocoupler → VFD FWD/RUN terminal.</td></tr>
+          <tr><td>D4</td><td>Jump / start button to GND.</td></tr>
+          <tr><td>D9</td><td>Servo signal. Servo + and − on a separate 5–6 V supply, GND shared.</td></tr>
+          <tr><td>A0</td><td>Pivot potentiometer wiper (10 kΩ linear), ends on 5 V and GND.</td></tr>
+          <tr><td>D7</td><td>Pivot microswitch to GND, if USE_POT = 0.</td></tr>
+          <tr><td>D13</td><td>Game-over LED.</td></tr>
+        </tbody>
+      </table>
+      <p class="fnote">Mains wiring to a VFD (230 V) must be done by someone qualified. The Arduino only touches the VFD's low-voltage control terminals. Put a hardware emergency stop in the motor power line: the sketch's collision stop is not a safety function.</p>
+      <p class="fnote">The Servo library uses Timer1, so D9/D10 lose analogWrite. The sketch moves Timer2 to 3.9 kHz for the motor PWM on D3, so don't use tone().</p></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>
