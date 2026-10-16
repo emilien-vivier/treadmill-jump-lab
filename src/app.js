@@ -206,6 +206,140 @@ function muTable() {
   return wrap;
 }
 
+// ---------- Spec: what the parts must deliver for the current design ----------
+const SPEED_MARGIN = 1.15; // same headroom the report asks of top speed
+const LOAD_MAX = 0.8; // continuous load ≤ 80 % of rated torque
+const FRICTION_SF = 1.5; // wood, hinges and μ are estimates: oversize by this much
+const STD_W = [5, 10, 15, 25, 40, 60, 90, 120, 180, 250, 370, 550, 750, 1100];
+const stdUp = (x, list) => list.find((v) => v >= x) ?? Math.ceil(x);
+
+function renderSpec() {
+  const host = $('#specView');
+  if (!host) return;
+  const d = out.d, ac = p.type === 'ac';
+  // each h() opens a new card; renderSpec closes them
+  let open = false;
+  const h = (t) => { const s = (open ? '</article>' : '') + `<article class="card"><header><h3>${t}</h3></header>`; open = true; return s; };
+  const tbl = (rows) => `<table class="kv">${rows.join('')}</table>`;
+  const big = (k, v, extra) => row(k, v, extra).replace('<tr>', '<tr class="big">');
+  const okPill = (good, tight) => pill(good ? 'ok' : tight ? 'warn' : 'bad', good ? 'ok' : tight ? tr('tight', 'juste') : tr('short', 'insuffisant'));
+
+  // Worst steady case: design speed with one obstacle held against the character
+  const vReq = p.vTarget * SPEED_MARGIN;
+  const F = out.col.total;
+  const wWheel = vReq / d.R;
+  const wMotor = wWheel * d.iTot;
+  const Tcont = (F * d.R) / (d.iTot * d.eta);
+  const TratedReq = Math.max(Tcont / LOAD_MAX, out.Tstart / 2);
+  const Pbelt = F * vReq;
+  const Pshaft = Pbelt / d.eta;
+  const PratedMin = TratedReq * wMotor;
+  const Prec = stdUp(PratedMin * FRICTION_SF, STD_W);
+  // Gearmotor output = after the built-in gearbox, before Z1
+  const iBevel = d.iA * d.iB, etaBevel = d.gear.eta * d.gear.eta;
+  const rpmOut = (wWheel * iBevel * 60) / (2 * Math.PI);
+  const Tout = (F * d.R) / (iBevel * etaBevel);
+  const TstartOut = out.Tstart * p.gh * p.etaGh;
+  const toRpm = 60 / (2 * Math.PI);
+
+  // Selected motor: rated mechanical power and top speed
+  let Psel, rpmSel;
+  if (ac) { Psel = p.P; rpmSel = (p.nRated * p.fMax) / p.fBase; }
+  else { Psel = d.Trated * Math.max(0, (p.V - p.Irated * p.R) / p.Kt); rpmSel = d.w0 * toRpm; }
+  const powOk = Psel >= PratedMin * FRICTION_SF, powTight = Psel >= PratedMin;
+  const trqOk = d.Trated >= TratedReq * FRICTION_SF, trqTight = d.Trated >= TratedReq;
+  const spdOk = out.vMax >= vReq, spdTight = out.vMax >= p.vTarget;
+  const stOk = out.TstartAvail >= out.Tstart / 0.6, stTight = out.TstartAvail >= out.Tstart;
+
+  const html = [];
+  html.push(`<div class="spec-intro"><h2>${tr('Specification', 'Cahier des charges')}</h2><p>${tr(`Sized for ${fmt(vReq, 2)} m/s (target ${fmt(p.vTarget, 2)} m/s + ${Math.round((SPEED_MARGIN - 1) * 100)} %) with one obstacle held by the character. Change the belt speed or any design-sheet tab and this page follows.`, `Dimensionné pour ${fmt(vReq, 2)} m/s (cible ${fmt(p.vTarget, 2)} m/s + ${Math.round((SPEED_MARGIN - 1) * 100)} %) avec un obstacle retenu par le personnage. La vitesse du tapis et les onglets de la fiche de conception mettent cette page à jour.`)}</p></div><div class="spec-grid">`);
+
+  html.push(h(tr('Motor needed', 'Moteur nécessaire')));
+  html.push(tbl([
+    row(tr('Force at the belt', 'Force au tapis'), fmt(F, 2) + ' N'),
+    row(tr('Power at the belt', 'Puissance au tapis'), fmt(Pbelt, 2) + ' W'),
+    row(tr('Power at the motor shaft', 'Puissance sur l’arbre moteur') + ` (η ${fmt(d.eta * 100, 0)} %)`, fmt(Pshaft, 2) + ' W'),
+    row(tr('Motor speed', 'Vitesse moteur') + ` (i = ${fmt(d.iTot, 1)})`, fmt(wMotor * toRpm, 0) + ' ' + RPM),
+    row(tr('Running torque', 'Couple en marche'), fmt(Tcont * 1000, 1) + ' N·mm'),
+    row(tr('Start torque (breakaway + ramp)', 'Couple de démarrage (décollage + rampe)'), fmt(out.Tstart * 1000, 1) + ' N·mm'),
+    big(tr('Rated torque, min', 'Couple nominal min'), fmt(TratedReq * 1000, 1) + ' N·mm'),
+    big(tr('Rated power, min', 'Puissance nominale min'), fmt(PratedMin, 1) + ' W'),
+    big(tr('Rated power, recommended', 'Puissance nominale conseillée'), Prec + ' W'),
+  ]));
+  html.push(`<p class="fnote">${tr(`Min = running torque at ≤ ${LOAD_MAX * 100} % of rated, and start torque ≤ 2× rated. Recommended adds ×${FRICTION_SF} because deck and hinge friction are estimates, rounded up to a catalogue size.`, `Min = couple en marche ≤ ${LOAD_MAX * 100} % du nominal, et couple de démarrage ≤ 2× nominal. Conseillé ajoute ×${FRICTION_SF} car les frottements plateau et charnières sont estimés, arrondi à une taille catalogue.`)}</p>`);
+
+  html.push(h(tr('If you buy a gearmotor', 'Si vous achetez un motoréducteur')));
+  html.push(tbl([
+    row(tr('Output speed (before Z1)', 'Vitesse de sortie (avant Z1)'), fmt(rpmOut, 0) + ' ' + RPM + ' ' + tr('or more', 'ou plus')),
+    row(tr('Output torque, running', 'Couple de sortie en marche'), fmt(Tout * 1000 / LOAD_MAX, 0) + ' N·mm'),
+    row(tr('Output torque, start', 'Couple de sortie au démarrage'), fmt(TstartOut * 1000, 0) + ' N·mm'),
+    row(tr('Roller speed', 'Vitesse des rouleaux'), fmt(wWheel * toRpm, 0) + ' ' + RPM),
+  ]));
+  html.push(`<p class="fnote">${tr(`Bevel stages Z2/Z1 × Z4/Z3 = ${fmt(iBevel, 2)}. Pick a gearmotor whose no-load output speed is about 1.3× the figure above: the rated speed under load sits ~20 % lower.`, `Étages coniques Z2/Z1 × Z4/Z3 = ${fmt(iBevel, 2)}. Choisissez un motoréducteur dont la vitesse à vide en sortie vaut environ 1,3× ce chiffre : sous charge, la vitesse nominale est ~20 % plus basse.`)}</p>`);
+
+  html.push(h(tr('Your motor vs the need', 'Votre moteur face au besoin')));
+  html.push(tbl([
+    row(tr('Rated power', 'Puissance nominale'), fmt(Psel, Psel < 10 ? 1 : 0) + ' W' + okPill(powOk, powTight)),
+    row(tr('Rated torque', 'Couple nominal'), fmt(d.Trated * 1000, 1) + ' N·mm' + okPill(trqOk, trqTight)),
+    row(tr('Top belt speed', 'Vitesse max du tapis'), fmt(out.vMax, 2) + ' m/s' + okPill(spdOk, spdTight)),
+    row(ac ? tr('Breakdown torque', 'Couple de décrochage') : tr('Stall torque (driver limit)', 'Couple de blocage (limite driver)'), fmt(out.TstartAvail * 1000, 0) + ' N·mm' + okPill(stOk, stTight)),
+    row(tr('Max motor speed', 'Vitesse moteur max'), fmt(rpmSel, 0) + ' ' + RPM),
+  ]));
+
+  if (ac) {
+    const vfdW = stdUp(Math.max(p.P, Prec), [200, 400, 750, 1500, 2200]);
+    html.push(h(tr('Variable-frequency drive', 'Variateur de fréquence')));
+    html.push(tbl([
+      row(tr('Input / output', 'Entrée / sortie'), tr('230 V 1~ → 230 V 3~', '230 V 1~ → 230 V 3~')),
+      big(tr('VFD rating', 'Calibre du variateur'), (vfdW >= 1000 ? fmt(vfdW / 1000, 1) + ' kW' : vfdW + ' W')),
+      row(tr('Output current ≥', 'Courant de sortie ≥'), fmt(p.In, 2) + ' A'),
+      row(tr('Frequency at target speed', 'Fréquence à la vitesse cible'), fmt(out.ss.f, 1) + ' Hz'),
+      row(tr('Control input', 'Entrée de commande'), '0–10 V + FWD'),
+    ]));
+  } else {
+    const Ipeak = Math.min(out.Tstart / p.Kt + p.I0, d.Istall);
+    const Ipsu = Math.max(p.Irated * 1.25, out.ssCol.I * 1.5);
+    const Idrv = Math.max(p.Irated * 2, Ipeak);
+    const psuA = stdUp(Ipsu, [1, 2, 3, 5, 6.5, 10, 15, 20, 30]);
+    html.push(h(tr('Power supply and driver', 'Alimentation et driver')));
+    html.push(tbl([
+      row(tr('Motor current at target', 'Courant moteur à la cible'), fmt(out.ss.I, 2) + ' A'),
+      row(tr('With an obstacle held', 'Avec un obstacle retenu'), fmt(out.ssCol.I, 2) + ' A'),
+      row(tr('Start peak', 'Pointe au démarrage'), fmt(Ipeak, 2) + ' A'),
+      big(tr('Motor supply', 'Alimentation moteur'), `${fmt(p.V, 0)} V · ${psuA} A (${Math.round(p.V * psuA)} W)`),
+      big(tr('Driver continuous current ≥', 'Courant continu du driver ≥'), fmt(Idrv, 1) + ' A' + okPill(d.driver.Ilim >= Idrv, d.driver.Ilim >= Ipeak)),
+    ]));
+  }
+
+  html.push(h(tr('Jump servo', 'Servo de saut')));
+  if (out.kin.ok) {
+    const TsReq = (out.servoStatic * 2 * 100) / 9.81; // kg·cm, ×2 margin
+    html.push(tbl([
+      row(tr('Peak static load torque', 'Couple statique max'), fmt((out.servoStatic * 100) / 9.81, 2) + ' kg·cm'),
+      big(tr('Stall torque ≥ (×2 margin)', 'Couple de blocage ≥ (marge ×2)'), fmt(TsReq, 1) + ' kg·cm'),
+      row(tr('Your servo', 'Votre servo'), fmt((d.servo.Ts * 100) / 9.81, 1) + ' kg·cm' + okPill(out.servoMargin >= 2, out.servoMargin >= 1.2)),
+      row(tr('Peak current', 'Courant crête'), fmt(out.jump.maxI, 2) + ' A'),
+      big(tr('Servo supply', 'Alimentation servo'), `5–6 V · ≥ ${Math.ceil(out.jump.maxI * 1.5)} A`),
+      row(tr('Rack travel needed', 'Course de crémaillère nécessaire'), '≥ ' + fmt((p.hObs + p.footGap) * 1000 + 5, 0) + ' mm'),
+    ]));
+  } else {
+    html.push(`<p class="advice">${out.kin.reason}</p>`);
+  }
+
+  html.push(h(tr('Other parts', 'Autres pièces')));
+  html.push(`<ul class="parts">
+    <li>${tr('Arduino Uno or Nano (5 V)', 'Arduino Uno ou Nano (5 V)')}</li>
+    <li>${tr(`Belt: ${p.loopLength.toFixed(2)} m × ${Math.round(p.width * 1000)} mm × ${p.thick * 1000} mm ${TJ.WOODS[p.wood].label}, ≈ ${Math.round(d.mBelt * 1000)} g`, `Tablier : ${p.loopLength.toFixed(2)} m × ${Math.round(p.width * 1000)} mm × ${p.thick * 1000} mm ${TJ.WOODS[p.wood].label}, ≈ ${Math.round(d.mBelt * 1000)} g`)}</li>
+    <li>${tr(`2 rollers, 4 wheels Ø${Math.round(p.D * 1000)} mm, axles Ø${Math.round(p.dShaft * 1000)} mm, 4 × ${TJ.BEARINGS[p.bearing].label}`, `2 rouleaux, 4 roues Ø${Math.round(p.D * 1000)} mm, axes Ø${Math.round(p.dShaft * 1000)} mm, 4 × ${TJ.BEARINGS[p.bearing].label}`)}</li>
+    <li>${tr(`Bevel gears: Z1 ${p.Z1} / Z2 ${p.Z2}, 2 × Z3 ${p.Z3} / 2 × Z4 ${p.Z4}`, `Engrenages coniques : Z1 ${p.Z1} / Z2 ${p.Z2}, 2 × Z3 ${p.Z3} / 2 × Z4 ${p.Z4}`)}</li>
+    <li>${tr(`Encoder: ${p.encSlots}-slot disc + optical fork (or A3144 hall + magnets)`, `Codeur : disque ${p.encSlots} fentes + fourche optique (ou hall A3144 + aimants)`)}</li>
+    <li>${tr(`Rack and pinion, module ${p.module}, pinion ${p.Zp} teeth`, `Pignon / crémaillère module ${p.module}, pignon ${p.Zp} dents`)}</li>
+    <li>${tr(`10 kΩ linear potentiometer, ${p.potRangeDeg}° travel, on the pivot`, `Potentiomètre 10 kΩ linéaire, course ${p.potRangeDeg}°, sur le pivot`)}</li>
+    <li>${tr('Push button, LED + 220 Ω, emergency stop in the motor power line', 'Bouton poussoir, LED + 220 Ω, arrêt d’urgence sur l’alimentation du moteur')}</li>
+  </ul></article></div>`);
+  host.innerHTML = html.join('');
+}
+
 function onField(f, input) {
   let v;
   if (f.type === 'select') v = input.value;
@@ -230,6 +364,7 @@ function rebuild() {
   lastHist = 0;
   scene.build(p, out, world);
   renderReport();
+  renderSpec();
   renderCode();
   drawTorqueSpeed();
   $('#vTarget').value = p.vTarget;
@@ -308,7 +443,7 @@ function renderReport() {
       ${row(tr('Pinion pitch radius m·Z/2', 'Rayon primitif du pignon m·Z/2'), fmt(d.rpp * 1000, 1) + ' mm')}
       ${row(tr('Rack travel (jump height)', 'Course de la crémaillère (hauteur de saut)'), fmt(kin.travel * 1000, 1) + ' mm', kin.travel < p.hObs + p.footGap ? pill('bad', tr('below obstacle', 'sous l’obstacle')) : '')}
       ${row(tr('Min transmission angle', 'Angle de transmission min'), fmt(kin.minTrans, 0) + '°', pill(trans, trans === 'ok' ? 'ok' : trans === 'warn' ? tr('poor', 'médiocre') : tr('jams', 'coince')))}
-      ${row(tr('Peak static torque at servo', 'Couple statique max au servo'), fmt(out.servoStatic * 100 / 0.981, 2) + ' kg·cm', `${tr('margin', 'marge')} ×${fmt(out.servoMargin, 1)}`)}
+      ${row(tr('Peak static torque at servo', 'Couple statique max au servo'), fmt(out.servoStatic * 100 / 9.81, 2) + ' kg·cm', `${tr('margin', 'marge')} ×${fmt(out.servoMargin, 1)}`)}
       ${row(tr('Rise / fall time', 'Temps de montée / descente'), `${fmt(j.riseT * 1000, 0)} / ${fmt(j.fallT * 1000, 0)} ms`)}
       ${row(tr('Peak servo current', 'Courant crête du servo'), fmt(j.maxI, 2) + ' A')}
       ${row(tr('Time above the obstacle', 'Temps au-dessus de l’obstacle'), fmt(j.tAbove * 1000, 0) + ' ms')}
@@ -556,7 +691,7 @@ function frame(now) {
     while (lastEvt < ev.length) { const e = ev[lastEvt++]; logLine(`[${(e.t / 1000).toFixed(2)} s] ${e.msg}`); }
     if (lastEvt > ev.length) lastEvt = ev.length;
   }
-  if ($('#simAcc').open) { scene.update(world); scene.render(); }
+  if ($('#simAcc').open && $('#stage').dataset.focus !== 'spec') { scene.update(world); scene.render(); }
   readouts();
   drawCharts();
   requestAnimationFrame(frame);
@@ -590,10 +725,10 @@ function selectDesignTab(tab) {
   buildForm();
 }
 function setFocus(focus, animate = true) {
-  if (!['all', 'belt', 'char'].includes(focus)) focus = 'all';
+  if (!['all', 'belt', 'char', 'spec'].includes(focus)) focus = 'all';
   $('#stage').dataset.focus = focus;
   document.querySelectorAll('.viewtabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.focus === focus ? 'true' : 'false'));
-  scene.setFocus(focus, animate);
+  if (focus !== 'spec') scene.setFocus(focus, animate);
   const allowed = FOCUS_TABS[focus];
   selectDesignTab(allowed && !allowed.includes(activeTab) ? allowed[0] : activeTab);
   // keep the view in the URL so a reload or the language switch lands on it
@@ -622,6 +757,7 @@ function init() {
     out = TJ.analyze(p);
     keep.out = out; keep.ard.out = out;
     renderReport(); renderCode(); drawTorqueSpeed();
+    renderSpec();
   });
   document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => {
     simSpeed = parseFloat(b.dataset.speed);

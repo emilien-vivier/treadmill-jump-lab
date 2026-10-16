@@ -175,3 +175,19 @@ pre#code { margin: 0; padding: 12px 14px; max-height: 620px; overflow: auto; fon
 .vbtn:hover { border-color: var(--ink-2); }
 .vbtn[aria-pressed="true"] { background: var(--accent-soft); }
 @media (prefers-reduced-motion: reduce) { .simacc > summary::after { transition: none; } }
+
+/* Specification view: computed requirements, read-only; replaces the simulation */
+.specview { display: none; }
+.stage[data-focus="spec"] .specview { display: grid; gap: 12px; }
+.stage[data-focus="spec"] > :not(.viewtabs):not(.specview):not(.controls) { display: none; }
+.stage[data-focus="spec"] .controls > :not(.speed) { display: none; }
+.stage[data-focus="spec"] .controls { order: 1; }
+.stage[data-focus="spec"] .specview { order: 2; }
+.spec-intro h2 { font-size: 24px; }
+.spec-intro p { margin: 2px 0 0; color: var(--ink-2); max-width: 75ch; }
+.spec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.specview table.kv td { white-space: nowrap; }
+.specview table.kv tr.big th, .specview table.kv tr.big td { color: var(--ink); font-weight: 600; }
+.specview .pill { margin-left: 6px; }
+.specview ul.parts { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+.specview ul.parts li + li { margin-top: 3px; }
