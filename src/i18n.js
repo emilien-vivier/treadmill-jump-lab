@@ -12,6 +12,7 @@ export function initLangSwitch(select) {
   select.value = LANG;
   select.addEventListener('change', () => {
     const base = import.meta.env.BASE_URL;
-    location.href = (select.value === 'fr' ? base + 'fr/' : base) + location.hash;
+    const page = location.pathname.split('/').pop(); // '' or 'index.html' or 'build.html'
+    location.href = (select.value === 'fr' ? base + 'fr/' : base) + page + location.hash;
   });
 }
