@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "GITHUB_PAGES=true vite build && touch dist/.nojekyll && cd dist && git init -q -b gh-pages && git add -A && git commit -qm deploy && git push -f https://github.com/emilien-vivier/treadmill-jump-lab.git gh-pages && rm -rf .git"
   },
   "dependencies": {
     "three": "0.128.0"
